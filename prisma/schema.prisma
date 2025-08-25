@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Mensalidades {
+  id_mensalidade  Int      @id @default(autoincrement())
+  parcela         Int
+  data_emissao    DateTime
+  vencimento      DateTime @db.Date
+  cobranca        DateTime @db.Date
+  data_pgto       DateTime? @db.Date
+  hora_pgto       String?
+  valor_principal Decimal  @db.Decimal(15, 2)
+  valor_pago      Decimal? @db.Decimal(15, 2)
+  status          String   @db.Char(1) // A= Aberto, P= Pago
+  referencia      String   @db.VarChar(5)
+  form_pagto      String?  @db.VarChar(20)
+
+  acordos         AcordoMensalidade[]
+}
+
+model Acordo {
+  id_acordo     Int       @id @default(autoincrement())
+  data_prevista DateTime  @db.Timestamptz()
+  metodo_pag    String?
+  status        String?   // Aberto, Quebra, Concluído
+  descricao     String?
+  total_acordo  Decimal?
+  realizado_por String?
+  dt_criacao    DateTime
+  dt_pgto       DateTime?
+
+  mensalidades  AcordoMensalidade[]
+}
+
+model AcordoMensalidade {
+  acordo Acordo @relation(fields: [id_acordo], references: [id_acordo])
+  id_acordo Int
+  mensalidade Mensalidades @relation(fields: [id_mensalidade], references: [id_mensalidade])
+  id_mensalidade Int
+
+  @@id([id_acordo, id_mensalidade])
+}
