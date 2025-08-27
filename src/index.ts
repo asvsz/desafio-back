@@ -1,11 +1,12 @@
 import express from 'express';
-
+import cors from 'cors';
 import { PrismaClient } from '../generated/prisma/index.js';
 
 const app = express();
 const prisma = new PrismaClient();
 const port = 3000;
 
+app.use(cors());
 app.use(express.json());
 
 app.get('/', (req, res) => {
@@ -15,7 +16,8 @@ app.get('/', (req, res) => {
 //ROTA PARA CRIAR NOVO ACORDO
 app.post('/acordos', async (req, res) => {
 
-  const { mensalidadesIds, data_prevista, descricao, realizado_por, metodo_pag, total_acordo } = req.body;
+  const { mensalidadesIds, data_prevista, descricao, realizado_por, metodo_pag} = req.body;
+  
   //1. Validação básica: verificar se alista de IDs foi enviada
   if (!mensalidadesIds || !Array.isArray(mensalidadesIds) || mensalidadesIds.length === 0) {
     return res.status(400).json({ error: 'A lista de IDs de mensalidades é obrigatória.' })
@@ -33,7 +35,7 @@ app.post('/acordos', async (req, res) => {
     })
 
     //3. Validar se todas as mensalidades foram encontradas
-    if (mensalidadesDoBanco.length !== mensalidadesDoBanco.length) {
+    if (mensalidadesDoBanco.length !== mensalidadesIds.length) {
       return res.status(404).json({ error: 'Uma ou mais mensalidades não foram encontradas' })
     }
 
@@ -46,42 +48,42 @@ app.post('/acordos', async (req, res) => {
     //5. Calcular o valor total de acordo
 
     const totalAcordo = mensalidadesDoBanco.reduce((soma, mensalidade) => {
-      return soma + mensalidade.valor_principal.toNumber();
+      return soma + Number(mensalidade.valor_principal)
     }, 0)
+
+
+    //6. Usar uma transação para criar Acordo e suas ligações 
+    const novoAcordo = await prisma.$transaction(async (tx) => {
+
+      const acordo = await tx.acordo.create({
+        data: {
+          data_prevista: data_prevista,
+          descricao: descricao,
+          metodo_pag: metodo_pag,
+          realizado_por: realizado_por,
+          total_acordo: totalAcordo,
+          status: 'Aberto',
+          dt_criacao: new Date(),
+        },
+      });
+
+      const dadosParaJunction = mensalidadesIds.map((id) => ({
+        id_acordo: acordo.id_acordo,
+        id_mensalidade: id,
+      }));
+
+      await tx.acordoMensalidade.createMany({
+        data: dadosParaJunction,
+      })
+
+      return acordo;
+    })
+
+    return res.status(201).json(novoAcordo);
   } catch (error) {
     console.error(error)
     return res.status(500).json({ error: 'Ocorreu um erro ao processar a solicitação.' });
   }
-
-  //6. Usar uma transação para criar Acordo e suas ligações 
-  const novoAcordo = await prisma.$transaction(async (tx) => {
-
-    const acordo = await tx.acordo.create({
-      data: {
-        data_prevista: data_prevista,
-        descricao: descricao,
-        metodo_pag: metodo_pag,
-        realizado_por: realizado_por,
-        total_acordo: total_acordo,
-        status: 'Aberto',
-        dt_criacao: new Date(),
-      },
-    });
-
-    const dadosParaJunction = mensalidadesIds.map((id) => ({
-      id_acordo: acordo.id_acordo,
-      id_mensalidade: id,
-    }));
-
-    await tx.acordoMensalidade.createMany({
-      data: dadosParaJunction,
-    })
-
-    return acordo;
-  })
-
-  return res.status(201).json(novoAcordo);
-
 });
 
 //ROTA PARA LISTAR TODOS OS ACORDOS
@@ -142,11 +144,26 @@ app.get('/acordos/finalizados', async (req, res) => {
   }
 })
 
+// ROTA PARA LISTAR TODAS AS MENSALIDADES (PAGAS E ABERTAS)
+app.get('/mensalidades', async (req, res) => {
+  try {
+    const todasAsMensalidades = await prisma.mensalidades.findMany({
+      orderBy: {
+        parcela: 'asc', // Ordena pela parcela
+      },
+    });
+    return res.status(200).json(todasAsMensalidades);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ error: 'Ocorreu um erro ao buscar as mensalidades.' });
+  }
+});
+
 //ROTA PARA REGISTRAR O PAGAMENTO DE UMA MENSALIDADE
 app.patch('/mensalidades/:id/pagar', async (req, res) => {
   try {
     const { id } = req.params;
-    const { valor_pago, data_pgto, form_pagto } = req.body
+    const { valor_pago, form_pagto } = req.body
 
     const mensalidadeId = parseInt(id, 10)
 
@@ -155,8 +172,8 @@ app.patch('/mensalidades/:id/pagar', async (req, res) => {
       data: {
         status: 'P',
         valor_pago: valor_pago ?? null,
-        data_pgto: data_pgto ? new Date(data_pgto) : null,
         form_pagto: form_pagto ?? null,
+        data_pgto: new Date(),
         hora_pgto: new Date().toLocaleTimeString('pt-BR', { hour12: false }),
       }
     })
