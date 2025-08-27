@@ -151,6 +151,14 @@ app.get('/mensalidades', async (req, res) => {
       orderBy: {
         parcela: 'asc', // Ordena pela parcela
       },
+
+      include: {
+        acordos: {
+          include: {
+            acordo:true
+          }
+        }
+      }
     });
     return res.status(200).json(todasAsMensalidades);
   } catch (error) {
