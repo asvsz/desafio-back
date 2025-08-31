@@ -49,25 +49,40 @@ export const pagarMensalidade = async (req: Request, res: Response) => {
     });
 
     for (const acordo of acordosAfetados) {
-      const mensalidadesDoAcordo = await prisma.mensalidades.findMany({
+      const todasAsMensalidadesDoAcordo = await prisma.mensalidades.findMany({
         where: { acordos: { some: { id_acordo: acordo.id_acordo } } },
       });
 
       let quantidadePaga = 0;
       let houvePagamentoAtrasado = false;
-      mensalidadesDoAcordo.forEach(m => {
+      const quantidadeTotal = todasAsMensalidadesDoAcordo.length;
+
+      todasAsMensalidadesDoAcordo.forEach(m => {
         if (m.status === 'P') {
           quantidadePaga++;
-          if (m.data_pgto && m.data_pgto > acordo.data_prevista) {
+
+          const prazoFinalDoDia = new Date(acordo.data_prevista)
+          prazoFinalDoDia.setHours(23, 59, 59, 999)
+
+          if (m.data_pgto && m.data_pgto > prazoFinalDoDia) {
             houvePagamentoAtrasado = true;
           }
         }
       });
 
+      const hoje = new Date()
+      const prazoFinalDoDia = new Date(acordo.data_prevista)
+      prazoFinalDoDia.setHours(23, 59, 59, 999)
+
+      let acordoVencidoNaoPago = false;
+      if (hoje > prazoFinalDoDia && quantidadePaga < quantidadeTotal) {
+        acordoVencidoNaoPago = true;
+      }
+
       let novoStatus = acordo.status;
       if (houvePagamentoAtrasado) {
         novoStatus = 'Quebra';
-      } else if (quantidadePaga === mensalidadesDoAcordo.length) {
+      } else if (quantidadePaga === quantidadeTotal) {
         novoStatus = 'Concluído';
       }
 
